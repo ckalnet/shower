@@ -28,6 +28,22 @@
             </div>
         </div>
 
+        <div class="tile-import-section">
+            <h2>Import Tile Details</h2>
+            <p class="import-instructions">
+                Copy and paste product details from Lowe's, Home Depot, or other retailers. 
+                We'll automatically extract tile dimensions and pricing.
+            </p>
+            <div class="import-controls">
+                <textarea id="tileImportText" placeholder="Paste tile product details here (e.g., from Lowe's or Home Depot product page)..."></textarea>
+                <div class="import-buttons">
+                    <button id="importTile" class="btn-primary">Import Tile Details</button>
+                    <button id="clearImport" class="btn-secondary">Clear</button>
+                </div>
+                <div id="importStatus" class="import-status"></div>
+            </div>
+        </div>
+
         <div class="tile-section">
             <h2>Tile Settings</h2>
             <div class="dimension-inputs">
@@ -52,6 +68,7 @@
                     </select>
                 </label>
             </div>
+            <div class="tile-info-display" id="tileInfoDisplay"></div>
             <div style="margin-top: 15px;">
                 <label style="display: flex; align-items: center; gap: 8px;">
                     <input type="checkbox" id="useLedgerBoard" style="width: auto;">
@@ -62,7 +79,10 @@
 
         <div class="results-section">
             <h2>Tile Layout</h2>
-            <button id="calculate" class="btn-primary">Generate Layout</button>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button id="calculate" class="btn-primary">Generate Layout</button>
+                <button id="resetDefaults" class="btn-secondary">Reset to Defaults</button>
+            </div>
             <div id="results"></div>
         </div>
     </div>

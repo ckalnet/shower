@@ -1,22 +1,273 @@
 class TileLayoutVisualizer {
     constructor() {
+        this.storageKey = 'showerTileLayoutInputs';
+        this.defaults = {
+            showerWidth: 36,
+            showerHeight: 96,
+            showerDepth: 36,
+            tileWidth: 3,
+            tileHeight: 6,
+            groutSpacing: 0.125,
+            tilePattern: 'brick-50',
+            useLedgerBoard: false
+        };
         this.init();
     }
 
     init() {
+        this.loadFromStorage();
         this.bindEvents();
-        // Auto-generate on page load with default values
+        // Auto-generate on page load with saved/default values
         setTimeout(() => this.generate(), 100);
     }
 
     bindEvents() {
         document.getElementById('calculate').addEventListener('click', () => this.generate());
+        document.getElementById('resetDefaults').addEventListener('click', () => this.resetToDefaults());
+        document.getElementById('importTile').addEventListener('click', () => this.importTileDetails());
+        document.getElementById('clearImport').addEventListener('click', () => this.clearImport());
 
-        // Auto-update on input change
+        // Auto-update on input change and save to storage
         const inputs = document.querySelectorAll('input, select');
         inputs.forEach(input => {
-            input.addEventListener('change', () => this.generate());
+            input.addEventListener('change', () => {
+                this.saveToStorage();
+                this.generate();
+            });
         });
+    }
+
+    loadFromStorage() {
+        try {
+            const saved = localStorage.getItem(this.storageKey);
+            const values = saved ? JSON.parse(saved) : this.defaults;
+            
+            // Apply values to inputs
+            Object.keys(values).forEach(key => {
+                const element = document.getElementById(key);
+                if (element) {
+                    if (element.type === 'checkbox') {
+                        element.checked = values[key];
+                    } else {
+                        element.value = values[key];
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Error loading from storage:', e);
+            this.applyDefaults();
+        }
+    }
+
+    saveToStorage() {
+        try {
+            const values = {};
+            Object.keys(this.defaults).forEach(key => {
+                const element = document.getElementById(key);
+                if (element) {
+                    values[key] = element.type === 'checkbox' ? element.checked : element.value;
+                }
+            });
+            localStorage.setItem(this.storageKey, JSON.stringify(values));
+        } catch (e) {
+            console.error('Error saving to storage:', e);
+        }
+    }
+
+    applyDefaults() {
+        Object.keys(this.defaults).forEach(key => {
+            const element = document.getElementById(key);
+            if (element) {
+                if (element.type === 'checkbox') {
+                    element.checked = this.defaults[key];
+                } else {
+                    element.value = this.defaults[key];
+                }
+            }
+        });
+    }
+
+    resetToDefaults() {
+        if (confirm('Reset all inputs to default values?')) {
+            this.applyDefaults();
+            this.saveToStorage();
+            this.generate();
+        }
+    }
+
+    clearImport() {
+        document.getElementById('tileImportText').value = '';
+        document.getElementById('importStatus').textContent = '';
+        document.getElementById('importStatus').className = 'import-status';
+        document.getElementById('tileInfoDisplay').classList.remove('visible');
+    }
+
+    async importTileDetails() {
+        const importText = document.getElementById('tileImportText').value.trim();
+        const statusDiv = document.getElementById('importStatus');
+        const infoDisplay = document.getElementById('tileInfoDisplay');
+
+        if (!importText) {
+            statusDiv.textContent = 'Please paste tile product details first.';
+            statusDiv.className = 'import-status error';
+            return;
+        }
+
+        statusDiv.textContent = 'Analyzing tile details with AI...';
+        statusDiv.className = 'import-status loading';
+
+        try {
+            const tileData = await this.parseTileDetailsWithLLM(importText);
+
+            if (tileData.error) {
+                statusDiv.textContent = tileData.error;
+                statusDiv.className = 'import-status error';
+                return;
+            }
+
+            // Update form fields
+            if (tileData.width) {
+                document.getElementById('tileWidth').value = tileData.width;
+            }
+            if (tileData.height) {
+                document.getElementById('tileHeight').value = tileData.height;
+            }
+
+            // Display extracted info
+            let infoHTML = '<h4>Extracted Tile Information:</h4>';
+            if (tileData.name) infoHTML += `<p><strong>Product:</strong> ${tileData.name}</p>`;
+            if (tileData.width && tileData.height) {
+                infoHTML += `<p><strong>Dimensions:</strong> ${tileData.width}" × ${tileData.height}"</p>`;
+            }
+            if (tileData.price) infoHTML += `<p><strong>Price:</strong> $${tileData.price}</p>`;
+            if (tileData.priceUnit) infoHTML += `<p><strong>Unit:</strong> ${tileData.priceUnit}</p>`;
+            if (tileData.material) infoHTML += `<p><strong>Material:</strong> ${tileData.material}</p>`;
+            if (tileData.finish) infoHTML += `<p><strong>Finish:</strong> ${tileData.finish}</p>`;
+
+            infoDisplay.innerHTML = infoHTML;
+            infoDisplay.classList.add('visible');
+
+            statusDiv.textContent = 'Tile details imported successfully!';
+            statusDiv.className = 'import-status success';
+
+            // Save and regenerate
+            this.saveToStorage();
+            this.generate();
+
+        } catch (error) {
+            console.error('Import error:', error);
+            statusDiv.textContent = 'Error parsing tile details. Please try again or enter manually.';
+            statusDiv.className = 'import-status error';
+        }
+    }
+
+    async parseTileDetailsWithLLM(text) {
+        // Try backend API first, fall back to pattern matching
+        try {
+            const apiUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+                ? 'http://localhost:3000/api/parse-tile'
+                : '/api/parse-tile';
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ text })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                return data;
+            }
+
+            // If API fails, fall back to pattern matching
+            console.warn('API unavailable, using pattern matching fallback');
+            return this.parseTileDetailsWithPatternMatching(text);
+
+        } catch (error) {
+            console.warn('API error, using pattern matching fallback:', error);
+            return this.parseTileDetailsWithPatternMatching(text);
+        }
+    }
+
+    parseTileDetailsWithPatternMatching(text) {
+        const result = {
+            width: null,
+            height: null,
+            price: null,
+            priceUnit: null,
+            name: null,
+            material: null,
+            finish: null
+        };
+
+        // Try to extract dimensions (various formats)
+        const dimensionPatterns = [
+            /(\d+(?:\.\d+)?)\s*(?:"|inch|in)?\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(?:"|inch|in)?/,
+            /(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)/,
+            /(\d+(?:\.\d+)?)-inch\s*[xX×]\s*(\d+(?:\.\d+)?)-inch/
+        ];
+
+        for (const pattern of dimensionPatterns) {
+            const match = text.match(pattern);
+            if (match) {
+                result.width = parseFloat(match[1]);
+                result.height = parseFloat(match[2]);
+                break;
+            }
+        }
+
+        // Extract price
+        const priceMatch = text.match(/\$\s*(\d+(?:\.\d{2})?)/);
+        if (priceMatch) {
+            result.price = parseFloat(priceMatch[1]);
+        }
+
+        // Extract price unit
+        if (text.match(/per\s+(?:sq\.?\s*ft|square\s+foot)/i)) {
+            result.priceUnit = 'per sq ft';
+        } else if (text.match(/per\s+(?:piece|tile|each)/i)) {
+            result.priceUnit = 'per piece';
+        } else if (text.match(/per\s+box/i)) {
+            result.priceUnit = 'per box';
+        }
+
+        // Extract material
+        const materials = ['ceramic', 'porcelain', 'glass', 'marble', 'granite', 'travertine', 'slate'];
+        for (const material of materials) {
+            if (text.toLowerCase().includes(material)) {
+                result.material = material.charAt(0).toUpperCase() + material.slice(1);
+                break;
+            }
+        }
+
+        // Extract finish
+        const finishes = ['glossy', 'matte', 'polished', 'honed', 'textured', 'glazed'];
+        for (const finish of finishes) {
+            if (text.toLowerCase().includes(finish)) {
+                result.finish = finish.charAt(0).toUpperCase() + finish.slice(1);
+                break;
+            }
+        }
+
+        // Try to extract product name
+        const lines = text.split('\n').filter(line => line.trim());
+        if (lines.length > 0) {
+            const titleLine = lines[0].trim();
+            if (titleLine.length < 100) {
+                result.name = titleLine;
+            }
+        }
+
+        // Validate we got at least dimensions
+        if (!result.width || !result.height) {
+            return {
+                error: 'Could not extract tile dimensions. Please ensure the text includes dimensions like "3 x 6 inches".'
+            };
+        }
+
+        return result;
     }
 
     generate() {

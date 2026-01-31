@@ -1,0 +1,46 @@
+# Example Tile Product Descriptions for Testing
+
+Copy and paste any of these into the "Import Tile Details" section to test the feature.
+
+## Example 1: Basic Subway Tile
+Style Selections Leonia Silver 3-in x 6-in Glossy Ceramic Subway Wall Tile
+$1.29 per sq ft
+Ceramic tile with a glossy finish
+Perfect for bathroom and kitchen backsplashes
+
+## Example 2: Marble Tile
+MSI Carrara White 3 in. x 6 in. Polished Marble Subway Tile
+Model# THDW1-SH-CAR36P
+$12.98 per piece
+Material: Marble
+Finish: Polished
+Premium natural stone tile
+
+## Example 3: Porcelain Tile
+Daltile Restore Bright White 4" x 12" Matte Porcelain Wall Tile
+$2.49 per sq ft
+Porcelain with matte finish
+Size: 4 x 12 inches
+Modern clean look
+
+## Example 4: Glass Tile
+Jeffrey Court Glass Mosaic 3 x 6 inch Glossy Glass Wall Tile
+$15.99 per box
+Material: Glass
+Finish: Glossy
+Dimensions: 3" x 6"
+10 pieces per box
+
+## Example 5: Large Format
+American Olean Starting Line 6-in x 12-in Ceramic Subway Tile
+$3.99 per sq ft
+Ceramic tile, glazed finish
+6 inch x 12 inch
+Contemporary style
+
+## Example 6: Small Mosaic
+Merola Tile Metro Soho Subway 1.75" x 3.75" Glossy Ceramic
+$8.49 per sq ft
+Ceramic, glossy
+1.75 x 3.75 inches
+Classic subway style

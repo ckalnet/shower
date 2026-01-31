@@ -31,7 +31,7 @@ h2 {
     padding-bottom: 5px;
 }
 
-.input-section, .tile-section, .materials-section, .results-section {
+.input-section, .tile-section, .tile-import-section, .materials-section, .results-section {
     background: white;
     padding: 25px;
     margin-bottom: 25px;
@@ -244,4 +244,100 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus {
     border-radius: 4px;
     margin: 10px 0;
     border-left: 3px solid #4caf50;
+}
+/* Tile 
+Import Section */
+.tile-import-section {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.tile-import-section h2 {
+    color: white;
+    border-bottom-color: rgba(255, 255, 255, 0.3);
+}
+
+.import-instructions {
+    margin-bottom: 15px;
+    opacity: 0.95;
+    font-size: 0.95rem;
+}
+
+.import-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#tileImportText {
+    width: 100%;
+    min-height: 120px;
+    padding: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    background: rgba(255, 255, 255, 0.95);
+    color: #333;
+}
+
+#tileImportText:focus {
+    outline: none;
+    border-color: white;
+    background: white;
+}
+
+.import-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.import-status {
+    min-height: 24px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.import-status.success {
+    background: rgba(76, 175, 80, 0.9);
+    color: white;
+}
+
+.import-status.error {
+    background: rgba(244, 67, 54, 0.9);
+    color: white;
+}
+
+.import-status.loading {
+    background: rgba(255, 255, 255, 0.9);
+    color: #333;
+}
+
+.tile-info-display {
+    background: #e8f5e9;
+    padding: 15px;
+    margin-top: 15px;
+    border-radius: 6px;
+    border-left: 4px solid #4caf50;
+    display: none;
+}
+
+.tile-info-display.visible {
+    display: block;
+}
+
+.tile-info-display h4 {
+    margin: 0 0 10px 0;
+    color: #2e7d32;
+}
+
+.tile-info-display p {
+    margin: 5px 0;
+    font-size: 0.95rem;
+}
+
+.tile-info-display strong {
+    color: #1b5e20;
 }
