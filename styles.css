@@ -197,6 +197,12 @@ input[type="number"]:focus, input[type="text"]:focus, select:focus {
     margin-bottom: 3px;
 }
 
+.corner-pair {
+    color: #0066cc;
+    font-weight: bold;
+    font-size: 0.9em;
+}
+
 .tile {
     stroke: #999;
     stroke-width: 0.5;
@@ -269,9 +275,37 @@ Import Section */
     gap: 10px;
 }
 
+#tileImportUrl {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    background: rgba(255, 255, 255, 0.95);
+    color: #333;
+}
+
+#tileImportUrl:focus {
+    outline: none;
+    border-color: white;
+    background: white;
+}
+
+#tileImportUrl::placeholder {
+    color: #888;
+}
+
+.import-divider {
+    text-align: center;
+    font-size: 0.85rem;
+    opacity: 0.8;
+    padding: 8px 0;
+}
+
 #tileImportText {
     width: 100%;
-    min-height: 120px;
+    min-height: 100px;
     padding: 12px;
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 6px;

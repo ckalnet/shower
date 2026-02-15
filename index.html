@@ -31,13 +31,14 @@
         <div class="tile-import-section">
             <h2>Import Tile Details</h2>
             <p class="import-instructions">
-                Copy and paste product details from Lowe's, Home Depot, or other retailers. 
-                We'll automatically extract tile dimensions and pricing.
+                Paste a product URL or copy product details from Home Depot, Lowe's, or other retailers.
             </p>
             <div class="import-controls">
-                <textarea id="tileImportText" placeholder="Paste tile product details here (e.g., from Lowe's or Home Depot product page)..."></textarea>
+                <input type="url" id="tileImportUrl" placeholder="Paste product URL (e.g., https://www.homedepot.com/p/...)">
+                <div class="import-divider">— or paste product text below —</div>
+                <textarea id="tileImportText" placeholder="Paste tile product details here..."></textarea>
                 <div class="import-buttons">
-                    <button id="importTile" class="btn-primary">Import Tile Details</button>
+                    <button id="importTile" class="btn-primary">Extract Tile Details</button>
                     <button id="clearImport" class="btn-secondary">Clear</button>
                 </div>
                 <div id="importStatus" class="import-status"></div>

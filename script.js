@@ -19,6 +19,21 @@ class TileLayoutVisualizer {
         this.bindEvents();
         // Auto-generate on page load with saved/default values
         setTimeout(() => this.generate(), 100);
+        // Check API connectivity
+        this.checkApiConnection();
+    }
+
+    async checkApiConnection() {
+        try {
+            const response = await fetch('http://localhost:3000/api/health');
+            if (response.ok) {
+                console.log('✓ API server connected');
+            } else {
+                console.warn('✗ API server responded with error');
+            }
+        } catch (error) {
+            console.warn('✗ API server not reachable - will use pattern matching fallback');
+        }
     }
 
     bindEvents() {
@@ -97,6 +112,7 @@ class TileLayoutVisualizer {
 
     clearImport() {
         document.getElementById('tileImportText').value = '';
+        document.getElementById('tileImportUrl').value = '';
         document.getElementById('importStatus').textContent = '';
         document.getElementById('importStatus').className = 'import-status';
         document.getElementById('tileInfoDisplay').classList.remove('visible');
@@ -104,20 +120,25 @@ class TileLayoutVisualizer {
 
     async importTileDetails() {
         const importText = document.getElementById('tileImportText').value.trim();
+        const importUrl = document.getElementById('tileImportUrl').value.trim();
         const statusDiv = document.getElementById('importStatus');
         const infoDisplay = document.getElementById('tileInfoDisplay');
 
-        if (!importText) {
-            statusDiv.textContent = 'Please paste tile product details first.';
+        if (!importText && !importUrl) {
+            statusDiv.textContent = 'Please paste a product URL or product details.';
             statusDiv.className = 'import-status error';
             return;
         }
 
-        statusDiv.textContent = 'Analyzing tile details with AI...';
+        if (importUrl) {
+            statusDiv.textContent = 'Fetching product page...';
+        } else {
+            statusDiv.textContent = 'Extracting tile details...';
+        }
         statusDiv.className = 'import-status loading';
 
         try {
-            const tileData = await this.parseTileDetailsWithLLM(importText);
+            const tileData = await this.parseTileDetailsWithLLM(importText, importUrl);
 
             if (tileData.error) {
                 statusDiv.textContent = tileData.error;
@@ -139,10 +160,11 @@ class TileLayoutVisualizer {
             if (tileData.width && tileData.height) {
                 infoHTML += `<p><strong>Dimensions:</strong> ${tileData.width}" × ${tileData.height}"</p>`;
             }
-            if (tileData.price) infoHTML += `<p><strong>Price:</strong> $${tileData.price}</p>`;
-            if (tileData.priceUnit) infoHTML += `<p><strong>Unit:</strong> ${tileData.priceUnit}</p>`;
+            if (tileData.price) infoHTML += `<p><strong>Price:</strong> $${tileData.price}${tileData.priceUnit ? ' ' + tileData.priceUnit : ''}</p>`;
             if (tileData.material) infoHTML += `<p><strong>Material:</strong> ${tileData.material}</p>`;
             if (tileData.finish) infoHTML += `<p><strong>Finish:</strong> ${tileData.finish}</p>`;
+            if (tileData.color) infoHTML += `<p><strong>Color:</strong> ${tileData.color}</p>`;
+            if (tileData.coverage) infoHTML += `<p><strong>Coverage:</strong> ${tileData.coverage} sq ft/case</p>`;
 
             infoDisplay.innerHTML = infoHTML;
             infoDisplay.classList.add('visible');
@@ -161,33 +183,56 @@ class TileLayoutVisualizer {
         }
     }
 
-    async parseTileDetailsWithLLM(text) {
+    async parseTileDetailsWithLLM(text, url) {
         // Try backend API first, fall back to pattern matching
         try {
-            const apiUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            // Handle file://, localhost, 127.0.0.1, or deployed server
+            const hostname = window.location.hostname;
+            const isLocal = !hostname || hostname === 'localhost' || hostname === '127.0.0.1';
+            const apiUrl = isLocal
                 ? 'http://localhost:3000/api/parse-tile'
                 : '/api/parse-tile';
+
+            console.log('Calling API:', apiUrl, { text: text ? 'provided' : 'none', url: url || 'none' });
+
+            const body = {};
+            if (url) body.url = url;
+            if (text) body.text = text;
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ text })
+                body: JSON.stringify(body)
             });
 
+            const data = await response.json();
+
             if (response.ok) {
-                const data = await response.json();
+                console.log('API response:', data);
                 return data;
             }
 
-            // If API fails, fall back to pattern matching
-            console.warn('API unavailable, using pattern matching fallback');
-            return this.parseTileDetailsWithPatternMatching(text);
+            // If API returns error, return it
+            console.warn('API error response:', response.status, data);
+
+            // If we have text and URL failed, try pattern matching on the text
+            if (text && url) {
+                console.warn('URL fetch failed, trying pattern matching on text');
+                return this.parseTileDetailsWithPatternMatching(text);
+            }
+
+            // Return the error from the API
+            return { error: data.error || 'Failed to extract tile details' };
 
         } catch (error) {
-            console.warn('API error, using pattern matching fallback:', error);
-            return this.parseTileDetailsWithPatternMatching(text);
+            console.warn('API error:', error);
+            // Fall back to pattern matching if we have text
+            if (text) {
+                return this.parseTileDetailsWithPatternMatching(text);
+            }
+            return { error: 'Could not connect to server. Please try pasting product text instead.' };
         }
     }
 
@@ -204,9 +249,18 @@ class TileLayoutVisualizer {
 
         // Try to extract dimensions (various formats)
         const dimensionPatterns = [
-            /(\d+(?:\.\d+)?)\s*(?:"|inch|in)?\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(?:"|inch|in)?/,
+            // "12 in. W x 24 in. L" or "12 in. W x 24 in. H" (Home Depot format with W/L/H suffixes)
+            /(\d+(?:\.\d+)?)\s*(?:"|inch|in\.?)\s*[WLH]?\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(?:"|inch|in\.?)\s*[WLH]?/i,
+            // "12" x 24"" or "12 in. x 24 in."
+            /(\d+(?:\.\d+)?)\s*(?:"|inch|in\.?)?\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(?:"|inch|in\.?)?/,
+            // "12 x 24"
             /(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)/,
-            /(\d+(?:\.\d+)?)-inch\s*[xX×]\s*(\d+(?:\.\d+)?)-inch/
+            // "12-inch x 24-inch"
+            /(\d+(?:\.\d+)?)-inch\s*[xX×]\s*(\d+(?:\.\d+)?)-inch/,
+            // "Width: 12" and "Height: 24" or "Length: 24" on separate lines
+            /(?:width|wide|w)\s*[:\s]\s*(\d+(?:\.\d+)?)\s*(?:"|inch|in\.?)?.*?(?:height|length|long|h|l)\s*[:\s]\s*(\d+(?:\.\d+)?)\s*(?:"|inch|in\.?)?/is,
+            // "12in x 24in" (no space/period)
+            /(\d+(?:\.\d+)?)in\s*[xX×]\s*(\d+(?:\.\d+)?)in/i
         ];
 
         for (const pattern of dimensionPatterns) {
@@ -270,6 +324,92 @@ class TileLayoutVisualizer {
         return result;
     }
 
+    identifyCornerPairs(backWallLayout, leftWallLayout, rightWallLayout) {
+        const pairs = [];
+
+        const backLeftByRow = new Map();
+        const backRightByRow = new Map();
+
+        for (const tile of backWallLayout.tiles) {
+            if (tile.cutInfo.left > 0) {
+                backLeftByRow.set(tile.row, tile);
+            }
+            if (tile.cutInfo.right > 0) {
+                backRightByRow.set(tile.row, tile);
+            }
+        }
+
+        for (const tile of leftWallLayout.tiles) {
+            if (tile.cutInfo.right > 0 && backLeftByRow.has(tile.row)) {
+                pairs.push({
+                    backTile: backLeftByRow.get(tile.row),
+                    sideTile: tile,
+                    walls: ['back', 'left']
+                });
+            }
+        }
+
+        for (const tile of rightWallLayout.tiles) {
+            if (tile.cutInfo.left > 0 && backRightByRow.has(tile.row)) {
+                pairs.push({
+                    backTile: backRightByRow.get(tile.row),
+                    sideTile: tile,
+                    walls: ['back', 'right']
+                });
+            }
+        }
+
+        return pairs;
+    }
+
+    assignGlobalTileNumbers(backWallLayout, leftWallLayout, rightWallLayout, cornerPairs) {
+        const useLedgerBoard = document.getElementById('useLedgerBoard')?.checked || false;
+
+        // Map side wall tiles to their back wall pair
+        const pairMap = new Map();
+        for (const pair of cornerPairs) {
+            pair.backTile.cornerPairWall = pair.walls[1];
+            pair.sideTile.cornerPairWall = 'back';
+            pairMap.set(pair.sideTile, pair.backTile);
+        }
+
+        const sortTiles = (tiles) => [...tiles].sort((a, b) => {
+            if (Math.abs(a.y - b.y) > 0.01) return b.y - a.y;
+            return a.x - b.x;
+        });
+
+        // Find bottom row Y (same across all walls due to shared startY/wallHeight)
+        let bottomRowY = null;
+        if (useLedgerBoard) {
+            const backSorted = sortTiles(backWallLayout.tiles);
+            if (backSorted.length > 0) {
+                bottomRowY = backSorted[0].y;
+            }
+        }
+
+        let nextNumber = 1;
+        let nextLedger = 1;
+
+        // Number walls in order: back, left, right
+        // Paired side wall tiles inherit the back wall tile's number
+        for (const wall of [backWallLayout, leftWallLayout, rightWallLayout]) {
+            const sorted = sortTiles(wall.tiles);
+
+            for (const tile of sorted) {
+                if (pairMap.has(tile)) {
+                    tile.installNumber = pairMap.get(tile).installNumber;
+                    continue;
+                }
+
+                if (useLedgerBoard && bottomRowY !== null && Math.abs(tile.y - bottomRowY) < 0.01) {
+                    tile.installNumber = 'L' + nextLedger++;
+                } else {
+                    tile.installNumber = nextNumber++;
+                }
+            }
+        }
+    }
+
     generate() {
         const showerWidth = parseFloat(document.getElementById('showerWidth').value) || 0;
         const showerHeight = parseFloat(document.getElementById('showerHeight').value) || 0;
@@ -310,31 +450,15 @@ class TileLayoutVisualizer {
         headerDiv.innerHTML = `<strong>Selected Pattern:</strong> ${patternName}`;
         results.appendChild(headerDiv);
 
-        // Calculate back wall first (this is the reference wall)
+        // Calculate all wall layouts first
         const backWallLayout = this.calculateTileLayout(
-            walls[0].width,
-            walls[0].height,
-            tileWidth,
-            tileHeight,
-            groutSpacing,
-            pattern,
-            null // Back wall has no offset
+            walls[0].width, walls[0].height,
+            tileWidth, tileHeight, groutSpacing, pattern, null
         );
 
-        totalTiles += backWallLayout.totalTiles;
-        totalFullTiles += backWallLayout.fullTiles;
-        totalCutTiles += backWallLayout.cutTiles;
-
-        this.renderWallLayout(results, walls[0], backWallLayout, tileWidth, tileHeight, groutSpacing, 0);
-
-        // Calculate left wall (wraps from left edge of back wall)
         const leftWallLayout = this.calculateTileLayout(
-            walls[1].width,
-            walls[1].height,
-            tileWidth,
-            tileHeight,
-            groutSpacing,
-            pattern,
+            walls[1].width, walls[1].height,
+            tileWidth, tileHeight, groutSpacing, pattern,
             {
                 startX: backWallLayout.startX,
                 startY: backWallLayout.startY,
@@ -343,20 +467,9 @@ class TileLayoutVisualizer {
             }
         );
 
-        totalTiles += leftWallLayout.totalTiles;
-        totalFullTiles += leftWallLayout.fullTiles;
-        totalCutTiles += leftWallLayout.cutTiles;
-
-        this.renderWallLayout(results, walls[1], leftWallLayout, tileWidth, tileHeight, groutSpacing, 1);
-
-        // Calculate right wall (wraps from right edge of back wall)
         const rightWallLayout = this.calculateTileLayout(
-            walls[2].width,
-            walls[2].height,
-            tileWidth,
-            tileHeight,
-            groutSpacing,
-            pattern,
+            walls[2].width, walls[2].height,
+            tileWidth, tileHeight, groutSpacing, pattern,
             {
                 startX: backWallLayout.startX,
                 startY: backWallLayout.startY,
@@ -365,10 +478,17 @@ class TileLayoutVisualizer {
             }
         );
 
-        totalTiles += rightWallLayout.totalTiles;
-        totalFullTiles += rightWallLayout.fullTiles;
-        totalCutTiles += rightWallLayout.cutTiles;
+        totalTiles = backWallLayout.totalTiles + leftWallLayout.totalTiles + rightWallLayout.totalTiles;
+        totalFullTiles = backWallLayout.fullTiles + leftWallLayout.fullTiles + rightWallLayout.fullTiles;
+        totalCutTiles = backWallLayout.cutTiles + leftWallLayout.cutTiles + rightWallLayout.cutTiles;
 
+        // Identify corner-wrapping tiles and assign global tile numbers
+        const cornerPairs = this.identifyCornerPairs(backWallLayout, leftWallLayout, rightWallLayout);
+        this.assignGlobalTileNumbers(backWallLayout, leftWallLayout, rightWallLayout, cornerPairs);
+
+        // Render all walls
+        this.renderWallLayout(results, walls[0], backWallLayout, tileWidth, tileHeight, groutSpacing, 0);
+        this.renderWallLayout(results, walls[1], leftWallLayout, tileWidth, tileHeight, groutSpacing, 1);
         this.renderWallLayout(results, walls[2], rightWallLayout, tileWidth, tileHeight, groutSpacing, 2);
 
         // Add summary
@@ -376,9 +496,8 @@ class TileLayoutVisualizer {
         summaryDiv.className = 'summary';
         summaryDiv.innerHTML = `
             <h3>Overall Summary</h3>
-            <p><strong>Total Tiles Needed:</strong> ${totalTiles}</p>
-            <p><strong>Full Tiles:</strong> ${totalFullTiles}</p>
-            <p><strong>Cut Tiles:</strong> ${totalCutTiles}</p>
+            <p><strong>Total Tile Positions:</strong> ${totalTiles} (${totalFullTiles} full, ${totalCutTiles} cut)</p>
+            ${cornerPairs.length > 0 ? `<p><strong>Corner Tiles:</strong> ${cornerPairs.length} tiles wrap around wall corners (same tile on two walls)</p>` : ''}
             <p><strong>Recommended Purchase:</strong> ${Math.ceil(totalTiles * 1.10)} tiles (includes 10% waste)</p>
             <p><strong>Tile Size:</strong> ${this.toFractionalInches(tileWidth)} × ${this.toFractionalInches(tileHeight)}</p>
             <p><strong>Grout Spacing:</strong> ${this.toFractionalInches(groutSpacing)}</p>
@@ -479,17 +598,21 @@ class TileLayoutVisualizer {
             }
         }
 
-        // Calculate how many tiles we need (with extra buffer for wrapped walls)
-        const tilesHorizontal = Math.ceil((wallWidth + Math.abs(startX)) / tileWithGrout.width) + 3;
-        const tilesVertical = Math.ceil((wallHeight + Math.abs(startY)) / tileWithGrout.height) + 3;
+        // Calculate tile grid range needed to cover the wall, accounting for wrap offsets
+        const colStart = Math.floor(startX / tileWithGrout.width) - 2;
+        const rowStart = Math.floor(startY / tileWithGrout.height) - 2;
+        const colEnd = Math.ceil((wallWidth + Math.abs(startX)) / tileWithGrout.width) + 2;
+        const rowEnd = Math.ceil((wallHeight + Math.abs(startY)) / tileWithGrout.height) + 2;
+        const tilesHorizontal = colEnd - colStart + 1;
+        const tilesVertical = rowEnd - rowStart + 1;
 
         // Generate tile grid
         const tiles = [];
         let fullTiles = 0;
         let cutTiles = 0;
 
-        for (let row = -2; row < tilesVertical; row++) {
-            for (let col = -2; col < tilesHorizontal; col++) {
+        for (let row = rowStart; row <= rowEnd; row++) {
+            for (let col = colStart; col <= colEnd; col++) {
                 let offsetX = 0;
 
                 // Apply pattern offset
@@ -571,44 +694,18 @@ class TileLayoutVisualizer {
         const wallDiv = document.createElement('div');
         wallDiv.className = 'wall-detail';
 
-        // Sort tiles from bottom to top, left to right for proper numbering
-        // Higher y values = closer to bottom, so sort descending by y, then ascending by x
+        // Sort tiles from bottom to top, left to right for display ordering
         const sortedTiles = [...layout.tiles].sort((a, b) => {
-            // First sort by row (bottom to top = higher y first)
             if (Math.abs(a.y - b.y) > 0.01) {
-                return b.y - a.y; // Descending y (bottom first)
+                return b.y - a.y;
             }
-            // Then sort by column (left to right)
-            return a.x - b.x; // Ascending x (left first)
+            return a.x - b.x;
         });
 
         // Check if using ledger board
         const useLedgerBoard = document.getElementById('useLedgerBoard')?.checked || false;
 
-        // Assign installation numbers
-        if (useLedgerBoard && sortedTiles.length > 0) {
-            // Find the bottom row y-value
-            const bottomRowY = sortedTiles[0].y;
-
-            // Separate bottom row from rest
-            const bottomRowTiles = sortedTiles.filter(t => Math.abs(t.y - bottomRowY) < 0.01);
-            const upperTiles = sortedTiles.filter(t => Math.abs(t.y - bottomRowY) >= 0.01);
-
-            // Number upper tiles starting from 1
-            upperTiles.forEach((tile, idx) => {
-                tile.installNumber = idx + 1;
-            });
-
-            // Number bottom row tiles (installed last) with L prefix
-            bottomRowTiles.forEach((tile, idx) => {
-                tile.installNumber = 'L' + (idx + 1);
-            });
-        } else {
-            sortedTiles.forEach((tile, idx) => {
-                tile.installNumber = idx + 1;
-            });
-        }
-
+        const wallNames = { back: 'Back Wall', left: 'Left Wall', right: 'Right Wall' };
         const cutTilesList = sortedTiles
             .filter(t => t.isCut)
             .map((t) => {
@@ -617,7 +714,11 @@ class TileLayoutVisualizer {
                 if (t.cutInfo.right > 0) cuts.push(`right: ${this.toFractionalInches(t.cutInfo.right)}`);
                 if (t.cutInfo.top > 0) cuts.push(`top: ${this.toFractionalInches(t.cutInfo.top)}`);
                 if (t.cutInfo.bottom > 0) cuts.push(`bottom: ${this.toFractionalInches(t.cutInfo.bottom)}`);
-                return `Tile #${t.installNumber}: ${this.toFractionalInches(t.width)} × ${this.toFractionalInches(t.height)} (cut ${cuts.join(', ')})`;
+                let label = `Tile #${t.installNumber}: ${this.toFractionalInches(t.width)} × ${this.toFractionalInches(t.height)} (cut ${cuts.join(', ')})`;
+                if (t.cornerPairWall) {
+                    label += ` <span class="corner-pair">\u2194 ${wallNames[t.cornerPairWall]}</span>`;
+                }
+                return label;
             });
 
         const ledgerNote = useLedgerBoard ?
