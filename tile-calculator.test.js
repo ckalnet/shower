@@ -433,10 +433,12 @@ describe('calculateShowerLayout', () => {
         assert.strictEqual(layout.totalTiles, layout.totalFullTiles + layout.totalCutTiles);
     });
 
-    it('should calculate recommended purchase with 10% waste', () => {
+    it('should calculate recommended purchase with 10% waste (minus corner pairs)', () => {
         const layout = calculateShowerLayout(defaultParams);
 
-        const expectedRecommended = Math.ceil(layout.totalTiles * 1.10);
+        const physicalTiles = layout.totalTiles - layout.cornerPairs.length;
+        assert.strictEqual(layout.physicalTiles, physicalTiles);
+        const expectedRecommended = Math.ceil(physicalTiles * 1.10);
         assert.strictEqual(layout.recommendedPurchase, expectedRecommended);
     });
 

@@ -9,6 +9,9 @@ class TileLayoutVisualizer {
             tileHeight: 6,
             groutSpacing: 0.125,
             tilePattern: 'brick-50',
+            tilePrice: '',
+            tilePriceUnit: '',
+            tileCoverage: '',
             useLedgerBoard: false
         };
         this.init();
@@ -25,7 +28,7 @@ class TileLayoutVisualizer {
 
     async checkApiConnection() {
         try {
-            const response = await fetch('http://localhost:3000/api/health');
+            const response = await fetch('api/health');
             if (response.ok) {
                 console.log('✓ API server connected');
             } else {
@@ -41,6 +44,19 @@ class TileLayoutVisualizer {
         document.getElementById('resetDefaults').addEventListener('click', () => this.resetToDefaults());
         document.getElementById('importTile').addEventListener('click', () => this.importTileDetails());
         document.getElementById('clearImport').addEventListener('click', () => this.clearImport());
+        document.getElementById('swapTileDims').addEventListener('click', () => this.swapTileDimensions());
+
+        // Import modal
+        const modal = document.getElementById('importModal');
+        document.getElementById('openImportModal').addEventListener('click', () => modal.showModal());
+        document.getElementById('closeImportModal').addEventListener('click', () => modal.close());
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.close();
+        });
+
+        // Show/hide coverage field based on price unit
+        document.getElementById('tilePriceUnit').addEventListener('change', () => this.toggleCoverageField());
+        this.toggleCoverageField();
 
         // Auto-update on input change and save to storage
         const inputs = document.querySelectorAll('input, select');
@@ -110,12 +126,29 @@ class TileLayoutVisualizer {
         }
     }
 
+    swapTileDimensions() {
+        const widthInput = document.getElementById('tileWidth');
+        const heightInput = document.getElementById('tileHeight');
+        const temp = widthInput.value;
+        widthInput.value = heightInput.value;
+        heightInput.value = temp;
+        this.saveToStorage();
+        this.generate();
+    }
+
+    toggleCoverageField() {
+        const unit = document.getElementById('tilePriceUnit').value;
+        const coverageField = document.getElementById('coverageField');
+        coverageField.style.display = unit === 'per box' ? '' : 'none';
+    }
+
     clearImport() {
         document.getElementById('tileImportText').value = '';
         document.getElementById('tileImportUrl').value = '';
         document.getElementById('importStatus').textContent = '';
         document.getElementById('importStatus').className = 'import-status';
         document.getElementById('tileInfoDisplay').classList.remove('visible');
+        this.importedProductName = null;
     }
 
     async importTileDetails() {
@@ -154,6 +187,21 @@ class TileLayoutVisualizer {
                 document.getElementById('tileHeight').value = tileData.height;
             }
 
+            // Populate price fields from imported data
+            if (tileData.price) {
+                document.getElementById('tilePrice').value = tileData.price;
+            }
+            if (tileData.priceUnit) {
+                document.getElementById('tilePriceUnit').value = tileData.priceUnit;
+                this.toggleCoverageField();
+            }
+            if (tileData.coverage) {
+                document.getElementById('tileCoverage').value = tileData.coverage;
+            }
+
+            // Store product name for display in summary
+            this.importedProductName = tileData.name || null;
+
             // Display extracted info
             let infoHTML = '<h4>Extracted Tile Information:</h4>';
             if (tileData.name) infoHTML += `<p><strong>Product:</strong> ${tileData.name}</p>`;
@@ -176,6 +224,11 @@ class TileLayoutVisualizer {
             this.saveToStorage();
             this.generate();
 
+            // Close modal after a brief moment so user sees the success message
+            setTimeout(() => {
+                document.getElementById('importModal').close();
+            }, 800);
+
         } catch (error) {
             console.error('Import error:', error);
             statusDiv.textContent = 'Error parsing tile details. Please try again or enter manually.';
@@ -186,12 +239,7 @@ class TileLayoutVisualizer {
     async parseTileDetailsWithLLM(text, url) {
         // Try backend API first, fall back to pattern matching
         try {
-            // Handle file://, localhost, 127.0.0.1, or deployed server
-            const hostname = window.location.hostname;
-            const isLocal = !hostname || hostname === 'localhost' || hostname === '127.0.0.1';
-            const apiUrl = isLocal
-                ? 'http://localhost:3000/api/parse-tile'
-                : '/api/parse-tile';
+            const apiUrl = 'api/parse-tile';
 
             console.log('Calling API:', apiUrl, { text: text ? 'provided' : 'none', url: url || 'none' });
 
@@ -491,16 +539,58 @@ class TileLayoutVisualizer {
         this.renderWallLayout(results, walls[1], leftWallLayout, tileWidth, tileHeight, groutSpacing, 1);
         this.renderWallLayout(results, walls[2], rightWallLayout, tileWidth, tileHeight, groutSpacing, 2);
 
-        // Add summary
+        // Add summary — subtract corner pairs since each is one physical tile on two walls
+        const physicalTiles = totalTiles - cornerPairs.length;
+        const recommendedTiles = Math.ceil(physicalTiles * 1.10);
+        const tileAreaSqFt = (tileWidth * tileHeight) / 144;
+        const totalAreaSqFt = recommendedTiles * tileAreaSqFt;
+        const wallAreaSqFt = ((showerWidth * showerHeight) + 2 * (showerDepth * showerHeight)) / 144;
+
+        const price = parseFloat(document.getElementById('tilePrice').value) || 0;
+        const priceUnit = document.getElementById('tilePriceUnit').value;
+        const coverage = parseFloat(document.getElementById('tileCoverage').value) || 0;
+        const productName = this.importedProductName || null;
+
+        let costHTML = '';
+        if (price > 0 && priceUnit) {
+            let estimatedCost = null;
+            let breakdown = '';
+
+            if (priceUnit === 'per sq ft') {
+                estimatedCost = totalAreaSqFt * price;
+                breakdown = `${totalAreaSqFt.toFixed(1)} sq ft × $${price.toFixed(2)}/sq ft`;
+            } else if (priceUnit === 'per piece') {
+                estimatedCost = recommendedTiles * price;
+                breakdown = `${recommendedTiles} tiles × $${price.toFixed(2)}/tile`;
+            } else if (priceUnit === 'per box' && coverage > 0) {
+                const boxesNeeded = Math.ceil(totalAreaSqFt / coverage);
+                estimatedCost = boxesNeeded * price;
+                breakdown = `${boxesNeeded} boxes × $${price.toFixed(2)}/box (${coverage} sq ft/box)`;
+            }
+
+            if (estimatedCost !== null) {
+                costHTML = `
+                    <div class="summary-cost">
+                        <p><strong>Estimated Cost:</strong> $${estimatedCost.toFixed(2)}</p>
+                        <p class="cost-breakdown">${breakdown}${productName ? ` — ${productName}` : ''}</p>
+                    </div>
+                `;
+            }
+        }
+
         const summaryDiv = document.createElement('div');
         summaryDiv.className = 'summary';
         summaryDiv.innerHTML = `
             <h3>Overall Summary</h3>
             <p><strong>Total Tile Positions:</strong> ${totalTiles} (${totalFullTiles} full, ${totalCutTiles} cut)</p>
-            ${cornerPairs.length > 0 ? `<p><strong>Corner Tiles:</strong> ${cornerPairs.length} tiles wrap around wall corners (same tile on two walls)</p>` : ''}
-            <p><strong>Recommended Purchase:</strong> ${Math.ceil(totalTiles * 1.10)} tiles (includes 10% waste)</p>
+            ${cornerPairs.length > 0 ? `<p><strong>Corner Tiles:</strong> ${cornerPairs.length} tiles wrap around corners (same physical tile on two walls)</p>` : ''}
+            <p><strong>Physical Tiles Needed:</strong> ${physicalTiles}</p>
+            <p><strong>Recommended Purchase:</strong> ${recommendedTiles} tiles (includes 10% waste)</p>
+            <p><strong>Wall Area:</strong> ${wallAreaSqFt.toFixed(1)} sq ft</p>
+            <p><strong>Tile Coverage:</strong> ${totalAreaSqFt.toFixed(1)} sq ft (${recommendedTiles} tiles)</p>
             <p><strong>Tile Size:</strong> ${this.toFractionalInches(tileWidth)} × ${this.toFractionalInches(tileHeight)}</p>
             <p><strong>Grout Spacing:</strong> ${this.toFractionalInches(groutSpacing)}</p>
+            ${costHTML}
         `;
         results.insertBefore(summaryDiv, results.firstChild);
     }
@@ -753,12 +843,12 @@ class TileLayoutVisualizer {
         if (!container) return;
 
         // Calculate scale to fit nicely
-        const maxWidth = 600;
-        const maxHeight = 500;
+        const maxWidth = 800;
+        const maxHeight = 650;
 
         const scaleX = maxWidth / layout.wallWidth;
         const scaleY = maxHeight / layout.wallHeight;
-        const scale = Math.min(scaleX, scaleY, 2); // Cap at 2x to prevent tiny tiles from being too large
+        const scale = Math.min(scaleX, scaleY, 10);
 
         const svgWidth = layout.wallWidth * scale + 100;
         const svgHeight = layout.wallHeight * scale + 100;
@@ -779,7 +869,7 @@ class TileLayoutVisualizer {
         wallRect.setAttribute('width', layout.wallWidth * scale);
         wallRect.setAttribute('height', layout.wallHeight * scale);
         wallRect.setAttribute('fill', 'none');
-        wallRect.setAttribute('stroke', '#333');
+        wallRect.setAttribute('stroke', '#44403C');
         wallRect.setAttribute('stroke-width', '2');
         svg.appendChild(wallRect);
 
@@ -803,9 +893,10 @@ class TileLayoutVisualizer {
                 text.setAttribute('y', offsetY + tile.y * scale + (tile.height * scale) / 2);
                 text.setAttribute('text-anchor', 'middle');
                 text.setAttribute('dominant-baseline', 'middle');
-                text.setAttribute('font-size', Math.min(10, tile.height * scale / 3));
-                text.setAttribute('fill', '#333');
-                text.setAttribute('font-weight', 'bold');
+                text.setAttribute('font-size', Math.min(12, tile.height * scale / 3));
+                text.setAttribute('fill', '#44403C');
+                text.setAttribute('font-weight', '700');
+                text.setAttribute('font-family', "'Space Mono', monospace");
                 text.textContent = tile.installNumber || '?';
                 svg.appendChild(text);
             }
@@ -827,7 +918,7 @@ class TileLayoutVisualizer {
         topLine.setAttribute('y1', offsetY - 20);
         topLine.setAttribute('x2', offsetX + displayWidth);
         topLine.setAttribute('y2', offsetY - 20);
-        topLine.setAttribute('stroke', '#666');
+        topLine.setAttribute('stroke', '#A8A29E');
         topLine.setAttribute('stroke-width', '1');
         topLine.setAttribute('marker-start', 'url(#arrowstart)');
         topLine.setAttribute('marker-end', 'url(#arrowend)');
@@ -835,10 +926,11 @@ class TileLayoutVisualizer {
 
         const topText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         topText.setAttribute('x', offsetX + displayWidth / 2);
-        topText.setAttribute('y', offsetY - 25);
+        topText.setAttribute('y', offsetY - 26);
         topText.setAttribute('text-anchor', 'middle');
-        topText.setAttribute('font-size', '12');
-        topText.setAttribute('fill', '#333');
+        topText.setAttribute('font-size', '11');
+        topText.setAttribute('fill', '#57534E');
+        topText.setAttribute('font-family', "'Space Mono', monospace");
         topText.textContent = this.toFractionalInches(actualWidth);
         svg.appendChild(topText);
 
@@ -848,7 +940,7 @@ class TileLayoutVisualizer {
         leftLine.setAttribute('y1', offsetY);
         leftLine.setAttribute('x2', offsetX - 20);
         leftLine.setAttribute('y2', offsetY + displayHeight);
-        leftLine.setAttribute('stroke', '#666');
+        leftLine.setAttribute('stroke', '#A8A29E');
         leftLine.setAttribute('stroke-width', '1');
         svg.appendChild(leftLine);
 
@@ -856,48 +948,55 @@ class TileLayoutVisualizer {
         leftText.setAttribute('x', offsetX - 25);
         leftText.setAttribute('y', offsetY + displayHeight / 2);
         leftText.setAttribute('text-anchor', 'middle');
-        leftText.setAttribute('font-size', '12');
-        leftText.setAttribute('fill', '#333');
+        leftText.setAttribute('font-size', '11');
+        leftText.setAttribute('fill', '#57534E');
+        leftText.setAttribute('font-family', "'Space Mono', monospace");
         leftText.setAttribute('transform', `rotate(-90, ${offsetX - 25}, ${offsetY + displayHeight / 2})`);
         leftText.textContent = this.toFractionalInches(actualHeight);
         svg.appendChild(leftText);
     }
 
     addLegend(svg, svgWidth, svgHeight) {
-        const legendY = svgHeight - 50;
+        const legendY = svgHeight - 40;
         const legendX = 10;
 
         // Full tile
         const fullRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
         fullRect.setAttribute('x', legendX);
         fullRect.setAttribute('y', legendY);
-        fullRect.setAttribute('width', 20);
-        fullRect.setAttribute('height', 15);
+        fullRect.setAttribute('width', 18);
+        fullRect.setAttribute('height', 13);
+        fullRect.setAttribute('rx', '2');
         fullRect.setAttribute('class', 'tile tile-full');
         svg.appendChild(fullRect);
 
         const fullText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        fullText.setAttribute('x', legendX + 25);
-        fullText.setAttribute('y', legendY + 11);
-        fullText.setAttribute('font-size', '11');
-        fullText.setAttribute('fill', '#333');
+        fullText.setAttribute('x', legendX + 24);
+        fullText.setAttribute('y', legendY + 10);
+        fullText.setAttribute('font-size', '10');
+        fullText.setAttribute('fill', '#78716C');
+        fullText.setAttribute('font-family', "'Outfit', sans-serif");
+        fullText.setAttribute('font-weight', '500');
         fullText.textContent = 'Full Tile';
         svg.appendChild(fullText);
 
         // Cut tile
         const cutRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        cutRect.setAttribute('x', legendX + 90);
+        cutRect.setAttribute('x', legendX + 85);
         cutRect.setAttribute('y', legendY);
-        cutRect.setAttribute('width', 20);
-        cutRect.setAttribute('height', 15);
+        cutRect.setAttribute('width', 18);
+        cutRect.setAttribute('height', 13);
+        cutRect.setAttribute('rx', '2');
         cutRect.setAttribute('class', 'tile tile-cut');
         svg.appendChild(cutRect);
 
         const cutText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        cutText.setAttribute('x', legendX + 115);
-        cutText.setAttribute('y', legendY + 11);
-        cutText.setAttribute('font-size', '11');
-        cutText.setAttribute('fill', '#333');
+        cutText.setAttribute('x', legendX + 109);
+        cutText.setAttribute('y', legendY + 10);
+        cutText.setAttribute('font-size', '10');
+        cutText.setAttribute('fill', '#78716C');
+        cutText.setAttribute('font-family', "'Outfit', sans-serif");
+        cutText.setAttribute('font-weight', '500');
         cutText.textContent = 'Cut Tile';
         svg.appendChild(cutText);
     }

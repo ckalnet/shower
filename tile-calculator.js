@@ -332,6 +332,7 @@ export function calculateShowerLayout(params) {
     const totalCutTiles = backWallLayout.cutTiles + leftWallLayout.cutTiles + rightWallLayout.cutTiles;
 
     const cornerPairs = identifyCornerPairs(backWallLayout, leftWallLayout, rightWallLayout);
+    const physicalTiles = totalTiles - cornerPairs.length;
 
     return {
         backWall: backWallLayout,
@@ -340,7 +341,8 @@ export function calculateShowerLayout(params) {
         totalTiles,
         totalFullTiles,
         totalCutTiles,
-        recommendedPurchase: Math.ceil(totalTiles * 1.10),
+        physicalTiles,
+        recommendedPurchase: Math.ceil(physicalTiles * 1.10),
         cornerPairs
     };
 }

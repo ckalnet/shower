@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.*
+.git
+.gitignore
+*.md
+*.test.*
+test-*
+__tests__
+.vscode
+.claude
+.kiro
